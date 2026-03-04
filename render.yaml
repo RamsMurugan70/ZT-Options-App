@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: zta-options
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5001"
+    healthCheckPath: /health
+    plan: free
