@@ -5,10 +5,11 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
     NODE_ENV=production
 
-# Install Python for the algo engine
+# Install Python and pip manually for better compatibility
 USER root
-RUN apt-get update && apt-get install -y python3 python3-pip --no-install-recommends \
-    && pip3 install --break-system-packages yfinance \
+RUN apt-get update && apt-get install -y python3 curl --no-install-recommends \
+    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
+    && pip3 install yfinance pandas \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
