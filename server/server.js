@@ -5,7 +5,7 @@ const fs = require('fs');
 const log = require('./utils/logger');
 const optionsRoutes = require('./routes/optionsRoutes');
 
-// Catch any unhandled errors from Puppeteer closing sequence
+// Catch any unhandled errors gracefully
 process.on('uncaughtException', (err) => {
     log.info(`[Uncaught Exception] ${err.message}`);
 });

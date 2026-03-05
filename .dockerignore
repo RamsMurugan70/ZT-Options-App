@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+server/public/
+
+# Logs
+*.log
+
+# Database (will be created at runtime)
+*.sqlite
+
+# Cache
+optionsCache.json
+
+# Git
+.git/
+.gitignore
+
+# Debug files
+debug_*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Render config (not needed for AWS)
+render.yaml
+
+# Test files
+server/test_*.js
+test_*.js

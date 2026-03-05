@@ -1,10 +1,18 @@
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 const db = require('./db');
 
-const BSE_DERIV_URL = 'https://www.bseindia.com/stock-share-price/future-options/derivatives/1/';
 const BSE_API_BASE = 'https://api.bseindia.com';
 const SENSEX_SCRIP_CD = '1';
 const STRIKE_OFFSET = 3500;
+
+// Common headers to mimic browser requests
+const BSE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.bseindia.com/',
+    'Origin': 'https://www.bseindia.com'
+};
 
 function getUpcomingFridays(count = 2) {
     const dates = [];
@@ -46,66 +54,54 @@ function extractBseOptionFields(row, strike, type) {
     };
 }
 
+/**
+ * Fetch SENSEX option chain data using direct BSE API calls (no browser needed).
+ */
 async function fetchSensexOptionChain() {
-    let browser;
-    try {
-        console.log('[BSE Options] Launching browser...');
-        browser = await puppeteer.launch({
-            headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-http2']
-        });
+    console.log('[BSE Options] Fetching SENSEX data via direct API calls...');
 
-        const page = await browser.newPage();
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    // 1. Get spot price
+    const spotRes = await axios.get(
+        `${BSE_API_BASE}/BseIndiaAPI/api/getScripHeaderData/w?Debtflag=&scripcode=${SENSEX_SCRIP_CD}&seriesid=`,
+        { headers: BSE_HEADERS, timeout: 15000 }
+    );
+    const spot = parseBseNumber(spotRes.data?.CurrRate?.LTP) || 0;
+    console.log(`[BSE Options] SENSEX spot: ${spot}`);
 
-        console.log('[BSE Options] Establishing BSE session...');
+    // 2. Get active expiry dates
+    const expiryRes = await axios.get(
+        `${BSE_API_BASE}/BseIndiaAPI/api/ddlExpiry_New/w?scrip_cd=${SENSEX_SCRIP_CD}`,
+        { headers: BSE_HEADERS, timeout: 15000 }
+    );
+    const activeExpiries = expiryRes.data?.Table1
+        ? expiryRes.data.Table1.map(t => t.ExpiryDate)
+        : [];
+
+    const candidateDates = activeExpiries.length > 0
+        ? activeExpiries.slice(0, 4)
+        : getUpcomingFridays(4).map(formatBSEDate);
+
+    // 3. Fetch option chain for each expiry
+    const targetExpiries = [];
+    for (const expiry of candidateDates) {
+        if (targetExpiries.length >= 2) break;
+
         try {
-            await page.goto(BSE_DERIV_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        } catch (e) { console.log('Nav partial:', e.message); }
-        await new Promise(r => setTimeout(r, 3000));
+            const chainRes = await axios.get(
+                `${BSE_API_BASE}/BseIndiaAPI/api/DerivOptionChain_IV/w?Expiry=${encodeURIComponent(expiry)}&scrip_cd=${SENSEX_SCRIP_CD}&strprice=0`,
+                { headers: BSE_HEADERS, timeout: 15000 }
+            );
 
-        const spotData = await page.evaluate(async (base, scrip) => {
-            try {
-                const res = await fetch(`${base}/BseIndiaAPI/api/getScripHeaderData/w?Debtflag=&scripcode=${scrip}&seriesid=`);
-                return await res.json();
-            } catch (e) { return { error: e.message }; }
-        }, BSE_API_BASE, SENSEX_SCRIP_CD);
-
-        const spot = parseBseNumber(spotData?.CurrRate?.LTP) || 0;
-
-        const activeExpiriesData = await page.evaluate(async (base, scrip) => {
-            try {
-                const res = await fetch(`${base}/BseIndiaAPI/api/ddlExpiry_New/w?scrip_cd=${scrip}`);
-                const json = await res.json();
-                return json.Table1 ? json.Table1.map(t => t.ExpiryDate) : [];
-            } catch (e) { return []; }
-        }, BSE_API_BASE, SENSEX_SCRIP_CD);
-
-        const candidateDates = activeExpiriesData.length > 0 ? activeExpiriesData.slice(0, 4) : getUpcomingFridays(4).map(formatBSEDate);
-        const targetExpiries = [];
-
-        for (const expiry of candidateDates) {
-            if (targetExpiries.length >= 2) break;
-
-            const chainData = await page.evaluate(async (base, scrip, exp) => {
-                try {
-                    const res = await fetch(`${base}/BseIndiaAPI/api/DerivOptionChain_IV/w?Expiry=${encodeURIComponent(exp)}&scrip_cd=${scrip}&strprice=0`);
-                    const json = await res.json();
-                    if (json && json.Table && json.Table.length > 0) return json;
-                    return null;
-                } catch (e) { return null; }
-            }, BSE_API_BASE, SENSEX_SCRIP_CD, expiry);
-
-            if (chainData && chainData.Table && chainData.Table.length > 0) {
-                targetExpiries.push({ expiry, data: chainData.Table });
+            if (chainRes.data && chainRes.data.Table && chainRes.data.Table.length > 0) {
+                targetExpiries.push({ expiry, data: chainRes.data.Table });
+                console.log(`[BSE Options] Fetched chain for expiry: ${expiry} (${chainRes.data.Table.length} rows)`);
             }
+        } catch (err) {
+            console.error(`[BSE Options] Failed to fetch chain for ${expiry}: ${err.message}`);
         }
-
-        return { spot, allExpiries: targetExpiries };
-
-    } finally {
-        if (browser) await browser.close();
     }
+
+    return { spot, allExpiries: targetExpiries };
 }
 
 async function getAnchorPrice() {

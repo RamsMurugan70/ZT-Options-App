@@ -10,8 +10,8 @@ const transports = [
 // Only write log files in development (avoids unbounded growth on cloud)
 if (process.env.NODE_ENV !== 'production') {
     transports.push(
-        new winston.transports.File({ filename: 'error.log', level: 'error' }),
-        new winston.transports.File({ filename: 'combined.log' })
+        new winston.transports.File({ filename: 'error.log', level: 'error', maxsize: 10 * 1024 * 1024, maxFiles: 3 }),
+        new winston.transports.File({ filename: 'combined.log', maxsize: 10 * 1024 * 1024, maxFiles: 3 })
     );
 }
 

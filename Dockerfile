@@ -1,36 +1,33 @@
-FROM ghcr.io/puppeteer/puppeteer:21.0.0
+# --- Stage 1: Build React Frontend ---
+FROM node:20-alpine AS frontend-builder
 
-# Skip Chromium download for puppeteer as we are using the installed chrome
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable \
-    NODE_ENV=production
+WORKDIR /app/client
+COPY client/package*.json ./
+RUN npm ci
+COPY client/ ./
+RUN npm run build
 
-# Install Python and pip manually for better compatibility
-USER root
-RUN apt-get update && apt-get install -y python3 curl --no-install-recommends \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3 \
-    && pip3 install yfinance pandas \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# --- Stage 2: Production Server ---
+FROM node:20-alpine
 
-WORKDIR /usr/src/app
+# Install Python3 and pip for the algo engine, plus build tools for native modules (sqlite3)
+RUN apk add --no-cache python3 py3-pip build-base \
+    && pip3 install --break-system-packages yfinance pandas \
+    && apk del build-base
 
-# --- Build the React frontend ---
-COPY client/package*.json ./client/
-RUN cd client && npm ci
+ENV NODE_ENV=production
 
-COPY client/ ./client/
-RUN cd client && npm run build
+WORKDIR /app
 
-# --- Setup the backend ---
-COPY server/package*.json ./server/
-RUN cd server && npm ci --omit=dev
+# Install server dependencies
+COPY server/package*.json ./
+RUN npm ci --omit=dev
 
-COPY server/ ./server/
+# Copy server code
+COPY server/ ./
 
-# Copy frontend build into server/public for static serving
-RUN cp -r client/dist server/public
-
-WORKDIR /usr/src/app/server
+# Copy frontend build from stage 1 into server/public for static serving
+COPY --from=frontend-builder /app/client/dist ./public
 
 EXPOSE 5001
-CMD [ "node", "server.js" ]
+CMD ["node", "server.js"]

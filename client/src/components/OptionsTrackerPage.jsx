@@ -436,7 +436,7 @@ const OptionsTrackerPage = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <IndianRupee className="text-brand-600" /> Options Tracker
+                        <IndianRupee className="text-brand-600" /> Rams's Option Builder
                     </h1>
                     <p className="text-slate-500 text-sm">
                         Track OTM option premiums for your selling strategy
