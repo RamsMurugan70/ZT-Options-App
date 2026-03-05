@@ -339,6 +339,7 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
             if (!match.expiry) {
                 dataRows = match.data.records.data.filter(d => {
                     if (d.expiryDate && d.expiryDate === expiry) return true;
+                    if (d.expiryDates && d.expiryDates === expiry) return true;
                     if (d.CE && d.CE.expiryDate === expiry) return true;
                     if (d.PE && d.PE.expiryDate === expiry) return true;
                     return false;
