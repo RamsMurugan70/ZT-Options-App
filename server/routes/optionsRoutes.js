@@ -203,7 +203,7 @@ router.get('/algo/nifty', (req, res) => {
     log.info(`[Options Algo] Running Python Engine in ${mode} mode...`);
 
     // Execute the Python script
-    exec(`python "${scriptPath}" ${mode}`, (error, stdout, stderr) => {
+    exec(`python3 "${scriptPath}" ${mode}`, (error, stdout, stderr) => {
         if (error) {
             log.info(`[Options Algo] Execution Error: ${error.message}`);
             return res.status(500).json({ error: 'Failed to execute algorithmic engine', details: error.message });
