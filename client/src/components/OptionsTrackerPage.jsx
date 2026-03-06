@@ -510,7 +510,7 @@ const OptionsTrackerPage = () => {
                 <div className={`mt-4 rounded-xl border p-5 ${algoError ? 'bg-rose-50 border-rose-200' : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'}`}>
                     <div className="flex justify-between items-start mb-2">
                         <h3 className="font-bold text-lg flex items-center gap-2 text-blue-900">
-                            <BarChart3 className="text-blue-600" /> Live Python Strategy Engine
+                            <BarChart3 className="text-blue-600" /> Live Risk Score Engine
                         </h3>
                         <button onClick={() => { setAlgoData(null); setAlgoError(null); }} className="text-blue-400 hover:text-blue-600">
                             <X size={20} />
