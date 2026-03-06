@@ -450,7 +450,7 @@ const OptionsTrackerPage = () => {
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium shadow-sm transition-colors border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 ${algoLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     <Activity size={16} className={algoLoading ? 'animate-pulse' : ''} />
-                    {algoLoading ? 'Analyzing Markets...' : '10:35 AM Expiry Health Check'}
+                    {algoLoading ? 'Analyzing Markets...' : '9:30 AM Live Risk Score'}
                 </button>
 
                 <div className="flex items-center gap-3">
