@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock, AlertTriangle, BarChart3, IndianRupee, ArrowUpDown, Plus, Trash2, X, CheckCircle2, Edit3, Copy } from 'lucide-react';
 
-const API_URL = '/api/options';
+const API_URL = import.meta.env.VITE_API_URL || '/api/options';
 
 const OptionsTrackerPage = () => {
     const [data, setData] = useState(null);
@@ -81,6 +81,81 @@ const OptionsTrackerPage = () => {
 
     const todayStr = () => new Date().toISOString().split('T')[0];
 
+    const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const MONTH_LABELS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+    const parseExpiryDate = (dateStr) => {
+        if (!dateStr) return null;
+        let parts = dateStr.split('-');
+        if (parts.length !== 3) parts = dateStr.split(' ');
+        if (parts.length !== 3 || MONTHS[parts[1]] === undefined) return null;
+
+        const expDate = new Date(parseInt(parts[2], 10), MONTHS[parts[1]], parseInt(parts[0], 10));
+        return Number.isNaN(expDate.getTime()) ? null : expDate;
+    };
+
+    const getDisplaySymbol = (rawSymbol = symbol) => rawSymbol === 'MIDCPNIFTY' ? 'MIDCAPNIFTY' : rawSymbol;
+
+    const getExpiryMetadata = (dateStr) => {
+        const expDate = parseExpiryDate(dateStr);
+        if (!expDate) return { label: dateStr || 'Unknown', isMonthly: false };
+
+        const weekday = expDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+        // Monthly expiry is the last listed weekly expiry of the month.
+        const nextWeek = new Date(expDate);
+        nextWeek.setDate(expDate.getDate() + 7);
+        const isMonthly = nextWeek.getMonth() !== expDate.getMonth();
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const currentDay = today.getDay();
+        const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
+        const startOfWeek = new Date(today);
+        startOfWeek.setDate(today.getDate() + mondayOffset);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+        const startOfNextWeek = new Date(endOfWeek);
+        startOfNextWeek.setDate(endOfWeek.getDate() + 1);
+        const endOfNextWeek = new Date(startOfNextWeek);
+        endOfNextWeek.setDate(startOfNextWeek.getDate() + 6);
+
+        let prefix = '';
+        if (expDate >= startOfWeek && expDate <= endOfWeek) {
+            prefix = 'This ';
+        } else if (expDate >= startOfNextWeek && expDate <= endOfNextWeek) {
+            prefix = 'Next ';
+        }
+
+        if (prefix) {
+            return { label: `${prefix}${weekday}`, isMonthly };
+        }
+
+        const dd = String(expDate.getDate()).padStart(2, '0');
+        const mm = MONTH_LABELS[expDate.getMonth()];
+        const yy = expDate.getFullYear();
+        return { label: `${dd}-${mm}-${yy} (${weekday})`, isMonthly };
+    };
+
+    const getBrokerOptionName = (expiry, strike, optionType) => {
+        const expDate = parseExpiryDate(expiry);
+        const meta = getExpiryMetadata(expiry);
+        const displaySymbol = getDisplaySymbol();
+
+        if (!expDate) return `${displaySymbol} ${strike} ${optionType}`;
+
+        const month = MONTH_LABELS[expDate.getMonth()];
+        if (meta.isMonthly) {
+            return `${displaySymbol} ${month} ${strike} ${optionType}`;
+        }
+
+        const day = String(expDate.getDate()).padStart(2, '0');
+        return `${displaySymbol} ${day} ${month} ${strike} ${optionType}`;
+    };
+
     // Get transactions for a specific option card
     const getCardTransactions = (expiry, strike, optionType) => {
         return transactions.filter(t =>
@@ -88,7 +163,7 @@ const OptionsTrackerPage = () => {
         );
     };
 
-    const OptionCard = ({ title, optionData, type, expiry }) => {
+    const OptionCard = ({ contractName, optionData, type, expiry, bandLabel }) => {
         const [showForm, setShowForm] = useState(false);
         const [editingId, setEditingId] = useState(null);
         const [form, setForm] = useState({ lots_sold: '', premium: '', margin: '', transaction_date: todayStr(), notes: '' });
@@ -96,16 +171,7 @@ const OptionsTrackerPage = () => {
         const [submitting, setSubmitting] = useState(false);
         const [copied, setCopied] = useState(false);
 
-        const formatExpiryForBroker = (dateStr) => {
-            if (!dateStr) return '';
-            const parts = dateStr.split('-');
-            if (parts.length >= 2) {
-                return `${parts[0]} ${parts[1]}`;
-            }
-            return dateStr;
-        };
-
-        const displayTitle = `${title} ${formatExpiryForBroker(expiry)}`;
+        const displayTitle = contractName;
 
         const handleCopy = () => {
             navigator.clipboard.writeText(displayTitle);
@@ -116,7 +182,8 @@ const OptionsTrackerPage = () => {
         if (!optionData) {
             return (
                 <div className="bg-white rounded-xl border border-slate-200 p-6 opacity-50">
-                    <h4 className="font-semibold text-slate-400">{title}</h4>
+                    <h4 className="font-semibold text-slate-400">{displayTitle}</h4>
+                    {bandLabel && <p className="text-xs font-semibold text-slate-400 mt-1">{bandLabel}</p>}
                     <p className="text-sm text-slate-400 mt-2">No data available for this strike/expiry</p>
                 </div>
             );
@@ -183,7 +250,10 @@ const OptionsTrackerPage = () => {
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
                             <Icon size={18} />
-                            <span className="font-bold text-lg">{displayTitle}</span>
+                            <div>
+                                <div className="font-bold text-lg leading-tight">{displayTitle}</div>
+                                {bandLabel && <div className="text-[11px] font-semibold text-white/75 uppercase tracking-wide">{bandLabel}</div>}
+                            </div>
                             <button
                                 onClick={handleCopy}
                                 className="p-1 hover:bg-white/20 rounded-md transition-colors flex items-center justify-center shrink-0"
@@ -375,59 +445,6 @@ const OptionsTrackerPage = () => {
         </div>
     );
 
-    const getExpiryMetadata = (dateStr) => {
-        if (!dateStr) return { label: 'Unknown', isMonthly: false };
-        const months = { 'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5, 'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11 };
-
-        let parts = dateStr.split('-');
-        if (parts.length !== 3) parts = dateStr.split(' ');
-        if (parts.length !== 3) return { label: dateStr, isMonthly: false };
-
-        const expDate = new Date(parts[2], months[parts[1]], parseInt(parts[0], 10));
-        const weekday = expDate.toLocaleDateString('en-US', { weekday: 'long' });
-
-        // Check if it's monthly (adding 7 days pushes it to next month)
-        const nextWeek = new Date(expDate);
-        nextWeek.setDate(expDate.getDate() + 7);
-        const isMonthly = nextWeek.getMonth() !== expDate.getMonth();
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
-        // Treat Monday as start of week (1), Sunday as end (0)
-        const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() + mondayOffset);
-
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-        const startOfNextWeek = new Date(endOfWeek);
-        startOfNextWeek.setDate(endOfWeek.getDate() + 1);
-        const endOfNextWeek = new Date(startOfNextWeek);
-        endOfNextWeek.setDate(startOfNextWeek.getDate() + 6);
-
-        let prefix = '';
-        if (expDate >= startOfWeek && expDate <= endOfWeek) {
-            prefix = 'This ';
-        } else if (expDate >= startOfNextWeek && expDate <= endOfNextWeek) {
-            prefix = 'Next ';
-        }
-
-        let label = '';
-        if (prefix) {
-            label = `${prefix}${weekday}`;
-        } else {
-            const dd = String(expDate.getDate()).padStart(2, '0');
-            const mm = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][expDate.getMonth()];
-            const yy = expDate.getFullYear();
-            label = `${dd}-${mm}-${yy} (${weekday})`;
-        }
-
-        return { label, isMonthly };
-    };
-
     const spotLabel = data?.label || symbol;
 
     return (
@@ -548,13 +565,13 @@ const OptionsTrackerPage = () => {
                                 )}
                             </div>
                             <div className="text-right space-y-2">
-                                <div className="bg-emerald-500/20 border border-emerald-500/30 rounded-lg px-3 py-1.5">
-                                    <p className="text-[10px] text-emerald-300 uppercase font-medium">CE Strike ({data.anchorPrice ? 'Open' : 'Spot'} + {data.strikeOffset || (symbol === 'NIFTY' ? 1000 : 3500)})</p>
-                                    <p className="font-bold text-emerald-400 text-lg">{formatNumber(data.ceStrike)}</p>
+                                <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg px-3 py-1.5">
+                                    <p className="text-[10px] text-blue-200 uppercase font-medium">OTM Bands</p>
+                                    <p className="font-bold text-blue-100 text-lg">2% and 2.5%</p>
                                 </div>
-                                <div className="bg-rose-500/20 border border-rose-500/30 rounded-lg px-3 py-1.5">
-                                    <p className="text-[10px] text-rose-300 uppercase font-medium">PE Strike ({data.anchorPrice ? 'Open' : 'Spot'} − {data.strikeOffset || (symbol === 'NIFTY' ? 1000 : 3500)})</p>
-                                    <p className="font-bold text-rose-400 text-lg">{formatNumber(data.peStrike)}</p>
+                                <div className="bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-1.5">
+                                    <p className="text-[10px] text-slate-300 uppercase font-medium">Reference</p>
+                                    <p className="font-bold text-white text-lg">{data.anchorPrice ? 'Open' : 'Spot'}</p>
                                 </div>
                             </div>
                         </div>
@@ -576,19 +593,35 @@ const OptionsTrackerPage = () => {
                                         Expiry: {exp.expiry}
                                     </span>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <OptionCard
-                                        title={`${symbol === 'MIDCPNIFTY' ? 'MIDCAPNIFTY' : symbol} ${data.ceStrike} CE`}
-                                        optionData={exp.ce}
-                                        type="CE"
-                                        expiry={exp.expiry}
-                                    />
-                                    <OptionCard
-                                        title={`${symbol === 'MIDCPNIFTY' ? 'MIDCAPNIFTY' : symbol} ${data.peStrike} PE`}
-                                        optionData={exp.pe}
-                                        type="PE"
-                                        expiry={exp.expiry}
-                                    />
+                                <div className="space-y-5">
+                                    {(exp.options || []).map(level => (
+                                        <div key={`${exp.expiry}-${level.key}`} className="space-y-3">
+                                            <div className="flex items-center gap-2">
+                                                <span className="bg-slate-900 text-white px-3 py-1 rounded-full text-xs font-bold">
+                                                    {level.label}
+                                                </span>
+                                                <span className="text-xs text-slate-500">
+                                                    CE {formatNumber(level.ceStrike)} / PE {formatNumber(level.peStrike)}
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <OptionCard
+                                                    contractName={getBrokerOptionName(exp.expiry, level.ceStrike, 'CE')}
+                                                    optionData={level.ce}
+                                                    type="CE"
+                                                    expiry={exp.expiry}
+                                                    bandLabel={level.label}
+                                                />
+                                                <OptionCard
+                                                    contractName={getBrokerOptionName(exp.expiry, level.peStrike, 'PE')}
+                                                    optionData={level.pe}
+                                                    type="PE"
+                                                    expiry={exp.expiry}
+                                                    bandLabel={level.label}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         );

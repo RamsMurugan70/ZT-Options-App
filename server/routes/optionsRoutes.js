@@ -39,8 +39,10 @@ const STALE_THRESHOLD = 12 * 60 * 60 * 1000;
     const now = Date.now();
     let purged = false;
     for (const sym of Object.keys(cacheMap)) {
-        if (cacheMap[sym] && (now - cacheMap[sym].timestamp > STALE_THRESHOLD)) {
-            log.info(`[Cache] Purging stale ${sym} cache from boot (age: ${Math.round((now - cacheMap[sym].timestamp) / 60000)}m)`);
+        const isOldShape = cacheMap[sym] && !cacheMap[sym].data?.otmLevels;
+        if (cacheMap[sym] && (isOldShape || now - cacheMap[sym].timestamp > STALE_THRESHOLD)) {
+            const reason = isOldShape ? 'old response shape' : `age: ${Math.round((now - cacheMap[sym].timestamp) / 60000)}m`;
+            log.info(`[Cache] Purging ${sym} cache from boot (${reason})`);
             delete cacheMap[sym];
             purged = true;
         }

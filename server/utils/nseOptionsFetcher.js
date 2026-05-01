@@ -6,13 +6,17 @@ const anchorCache = {};
 
 // Per-symbol configuration
 const SYMBOL_CONFIG = {
-    NIFTY: { strikeOffset: 1000, expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY', growwSymbol: 'NIFTY' },
-    BANKNIFTY: { strikeOffset: 2500, expiryDay: 3, label: 'BANKNIFTY', yahooSymbol: '^NSEBANK', nseSymbol: 'BANKNIFTY', growwSymbol: 'BANKNIFTY' },
-    FINNIFTY: { strikeOffset: 1200, expiryDay: 2, label: 'FINNIFTY', nseSymbol: 'FINNIFTY', yahooSymbol: 'NIFTY_FIN_SERVICE.NS', growwSymbol: 'FINNIFTY' },
-    MIDCPNIFTY: { strikeOffset: 600, expiryDay: 1, label: 'MIDCAP NIFTY', yahooSymbol: '^NSEMDCP50', nseSymbol: 'MIDCPNIFTY', growwSymbol: 'MIDCPNIFTY' },
-    SENSEX: { strikeOffset: 3500, expiryDay: 5, label: 'SENSEX', yahooSymbol: '^BSESN' }
+    NIFTY: { expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY', growwSymbol: 'NIFTY' },
+    BANKNIFTY: { expiryDay: 3, label: 'BANKNIFTY', yahooSymbol: '^NSEBANK', nseSymbol: 'BANKNIFTY', growwSymbol: 'BANKNIFTY' },
+    FINNIFTY: { expiryDay: 2, label: 'FINNIFTY', nseSymbol: 'FINNIFTY', yahooSymbol: 'NIFTY_FIN_SERVICE.NS', growwSymbol: 'FINNIFTY' },
+    MIDCPNIFTY: { expiryDay: 1, label: 'MIDCAP NIFTY', yahooSymbol: '^NSEMDCP50', nseSymbol: 'MIDCPNIFTY', growwSymbol: 'MIDCPNIFTY' },
+    SENSEX: { expiryDay: 5, label: 'SENSEX', yahooSymbol: '^BSESN' }
 };
 const VALID_SYMBOLS = Object.keys(SYMBOL_CONFIG);
+const OTM_LEVELS = [
+    { key: '2', label: '2% OTM', percent: 0.02 },
+    { key: '2_5', label: '2.5% OTM', percent: 0.025 }
+];
 
 const NSE_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
@@ -263,6 +267,26 @@ function getTargetExpiries(nseExpiries, symbol = 'NIFTY') {
     return nseExpiries.slice(0, 2);
 }
 
+function getAvailableStrikes(dataRows) {
+    return [...new Set(dataRows.map(d => d.strikePrice).filter(n => Number.isFinite(n)))].sort((a, b) => a - b);
+}
+
+function getOtmStrike(strikes, referencePrice, percent, type) {
+    if (!strikes.length || !referencePrice) return null;
+    const target = type === 'CE'
+        ? referencePrice * (1 + percent)
+        : referencePrice * (1 - percent);
+
+    if (type === 'CE') {
+        return strikes.find(strike => strike >= target) || strikes[strikes.length - 1];
+    }
+
+    for (let i = strikes.length - 1; i >= 0; i -= 1) {
+        if (strikes[i] <= target) return strikes[i];
+    }
+    return strikes[0];
+}
+
 async function getAnchorPrice(symbol) {
     const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG.NIFTY;
     const today = new Date().toISOString().split('T')[0];
@@ -322,9 +346,6 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
     const anchorPrice = await getAnchorPrice(upperSymbol);
     const referencePrice = anchorPrice || spot;
 
-    const ceStrike = Math.ceil((referencePrice + config.strikeOffset) / 100) * 100;
-    const peStrike = Math.ceil((referencePrice - config.strikeOffset) / 100) * 100;
-
     let targetExpiries = getTargetExpiries(raw.expiryDates, upperSymbol);
     if (targetExpiries.length === 0 && raw.intercepted.length > 0) {
         const potentialExpiries = raw.intercepted.map(i => i.expiry).filter(e => e);
@@ -349,13 +370,27 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
             }
         }
 
-        const ceRow = dataRows.length ? dataRows.find(d => d.strikePrice === ceStrike) : null;
-        const peRow = dataRows.length ? dataRows.find(d => d.strikePrice === peStrike) : null;
+        const strikes = getAvailableStrikes(dataRows);
+        const options = OTM_LEVELS.map(level => {
+            const ceStrike = getOtmStrike(strikes, referencePrice, level.percent, 'CE');
+            const peStrike = getOtmStrike(strikes, referencePrice, level.percent, 'PE');
+            const ceRow = dataRows.length ? dataRows.find(d => d.strikePrice === ceStrike) : null;
+            const peRow = dataRows.length ? dataRows.find(d => d.strikePrice === peStrike) : null;
+
+            return {
+                key: level.key,
+                label: level.label,
+                percent: level.percent,
+                ceStrike,
+                peStrike,
+                ce: extractOptionFields(ceRow?.CE, ceStrike),
+                pe: extractOptionFields(peRow?.PE, peStrike)
+            };
+        });
 
         return {
             expiry,
-            ce: extractOptionFields(ceRow?.CE, ceStrike),
-            pe: extractOptionFields(peRow?.PE, peStrike)
+            options
         };
     });
 
@@ -367,9 +402,7 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
         spot,
         anchorPrice,
         timestamp: new Date().toISOString(),
-        ceStrike,
-        peStrike,
-        strikeOffset: config.strikeOffset,
+        otmLevels: OTM_LEVELS,
         expiryDay: weekDays[config.expiryDay] || 'Thursday',
         expiries,
         dataSource: raw.source || 'NSE'

@@ -3,7 +3,10 @@ const db = require('./db');
 
 const BSE_API_BASE = 'https://api.bseindia.com';
 const SENSEX_SCRIP_CD = '1';
-const STRIKE_OFFSET = 3500;
+const OTM_LEVELS = [
+    { key: '2', label: '2% OTM', percent: 0.02 },
+    { key: '2_5', label: '2.5% OTM', percent: 0.025 }
+];
 
 // Common headers to mimic browser requests
 const BSE_HEADERS = {
@@ -52,6 +55,26 @@ function extractBseOptionFields(row, strike, type) {
         bidQty: parseBseNumber(type === 'CE' ? row.C_BIdQty : row.BIdQty),
         askQty: parseBseNumber(type === 'CE' ? row.C_OfferQty : row.OfferQty)
     };
+}
+
+function getAvailableStrikes(dataRows) {
+    return [...new Set(dataRows.map(d => parseBseNumber(d.Strike_Price)).filter(n => Number.isFinite(n)))].sort((a, b) => a - b);
+}
+
+function getOtmStrike(strikes, referencePrice, percent, type) {
+    if (!strikes.length || !referencePrice) return null;
+    const target = type === 'CE'
+        ? referencePrice * (1 + percent)
+        : referencePrice * (1 - percent);
+
+    if (type === 'CE') {
+        return strikes.find(strike => strike >= target) || strikes[strikes.length - 1];
+    }
+
+    for (let i = strikes.length - 1; i >= 0; i -= 1) {
+        if (strikes[i] <= target) return strikes[i];
+    }
+    return strikes[0];
 }
 
 /**
@@ -141,17 +164,28 @@ async function getSensexOptionsTrackerData() {
     const anchorPrice = await getAnchorPrice();
     const referencePrice = anchorPrice || spot;
 
-    const ceStrike = Math.ceil((referencePrice + STRIKE_OFFSET) / 100) * 100;
-    const peStrike = Math.ceil((referencePrice - STRIKE_OFFSET) / 100) * 100;
-
     const expiries = raw.allExpiries.map(({ expiry, data }) => {
-        const ceRow = data.find(d => parseBseNumber(d.Strike_Price) === ceStrike);
-        const peRow = data.find(d => parseBseNumber(d.Strike_Price) === peStrike);
+        const strikes = getAvailableStrikes(data);
+        const options = OTM_LEVELS.map(level => {
+            const ceStrike = getOtmStrike(strikes, referencePrice, level.percent, 'CE');
+            const peStrike = getOtmStrike(strikes, referencePrice, level.percent, 'PE');
+            const ceRow = data.find(d => parseBseNumber(d.Strike_Price) === ceStrike);
+            const peRow = data.find(d => parseBseNumber(d.Strike_Price) === peStrike);
+
+            return {
+                key: level.key,
+                label: level.label,
+                percent: level.percent,
+                ceStrike,
+                peStrike,
+                ce: extractBseOptionFields(ceRow, ceStrike, 'CE'),
+                pe: extractBseOptionFields(peRow, peStrike, 'PE')
+            };
+        });
 
         return {
             expiry,
-            ce: extractBseOptionFields(ceRow, ceStrike, 'CE'),
-            pe: extractBseOptionFields(peRow, peStrike, 'PE')
+            options
         };
     });
 
@@ -161,9 +195,7 @@ async function getSensexOptionsTrackerData() {
         spot,
         anchorPrice,
         timestamp: new Date().toISOString(),
-        ceStrike,
-        peStrike,
-        strikeOffset: STRIKE_OFFSET,
+        otmLevels: OTM_LEVELS,
         expiryDay: 'Friday',
         expiries
     };
