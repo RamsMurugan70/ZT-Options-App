@@ -9,10 +9,10 @@ const NSE_HEADERS = {
 };
 
 const SYMBOL_CONFIG = {
-  NIFTY: { expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY' },
-  BANKNIFTY: { expiryDay: 3, label: 'BANKNIFTY', yahooSymbol: '^NSEBANK', nseSymbol: 'BANKNIFTY' },
-  FINNIFTY: { expiryDay: 2, label: 'FINNIFTY', yahooSymbol: 'NIFTY_FIN_SERVICE.NS', nseSymbol: 'FINNIFTY' },
-  MIDCPNIFTY: { expiryDay: 1, label: 'MIDCAP NIFTY', yahooSymbol: '^NSEMDCP50', nseSymbol: 'MIDCPNIFTY' }
+  NIFTY: { expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY', growwSymbol: 'NIFTY' },
+  BANKNIFTY: { expiryDay: 3, label: 'BANKNIFTY', yahooSymbol: '^NSEBANK', nseSymbol: 'BANKNIFTY', growwSymbol: 'BANKNIFTY' },
+  FINNIFTY: { expiryDay: 2, label: 'FINNIFTY', yahooSymbol: 'NIFTY_FIN_SERVICE.NS', nseSymbol: 'FINNIFTY', growwSymbol: 'FINNIFTY' },
+  MIDCPNIFTY: { expiryDay: 1, label: 'MIDCAP NIFTY', yahooSymbol: '^NSEMDCP50', nseSymbol: 'MIDCPNIFTY', growwSymbol: 'MIDCPNIFTY' }
 };
 
 const BSE_API_BASE = 'https://api.bseindia.com';
@@ -126,9 +126,93 @@ async function fetchNseChain(symbol) {
   return res.data;
 }
 
+function formatGrowwExpiry(isoDate) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [year, month, day] = isoDate.split('-');
+  return `${day}-${months[Number(month) - 1]}-${year}`;
+}
+
+async function fetchGrowwChain(symbol) {
+  const config = SYMBOL_CONFIG[symbol];
+  const res = await axios.get(
+    `https://groww.in/v1/api/option_chain_service/v1/option_chain/${config.growwSymbol}`,
+    {
+      headers: {
+        'User-Agent': NSE_HEADERS['User-Agent'],
+        Accept: 'application/json',
+        'X-App-Id': 'growwWeb'
+      },
+      timeout: 12000
+    }
+  );
+
+  const oc = res.data?.optionChain;
+  const chains = oc?.optionChains || [];
+  if (!chains.length) throw new Error('Groww returned empty option chain');
+
+  const currentExpiryISO = oc.expiryDetailsDto?.currentExpiry || oc.expiryDetailsDto?.expiryDates?.[0];
+  const currentExpiry = currentExpiryISO ? formatGrowwExpiry(currentExpiryISO) : 'Unknown';
+  const expiryDates = (oc.expiryDetailsDto?.expiryDates || [currentExpiryISO]).filter(Boolean).map(formatGrowwExpiry);
+  const data = chains.map(row => {
+    const strike = (row.strikePrice || row.callOption?.strikePrice || row.putOption?.strikePrice) / 100;
+    const result = { strikePrice: strike, expiryDate: currentExpiry };
+    if (row.callOption) {
+      result.CE = {
+        strikePrice: strike,
+        expiryDate: currentExpiry,
+        lastPrice: row.callOption.ltp,
+        change: row.callOption.dayChange || 0,
+        pChange: row.callOption.dayChangePerc || 0,
+        openInterest: row.callOption.openInterest || 0,
+        changeinOpenInterest: (row.callOption.openInterest || 0) - (row.callOption.prevOpenInterest || 0),
+        totalTradedVolume: row.callOption.volume || 0,
+        impliedVolatility: null,
+        buyPrice1: 0,
+        sellPrice1: 0,
+        buyQuantity1: row.callOption.totalBuyQty || 0,
+        sellQuantity1: row.callOption.totalSellQty || 0
+      };
+    }
+    if (row.putOption) {
+      result.PE = {
+        strikePrice: strike,
+        expiryDate: currentExpiry,
+        lastPrice: row.putOption.ltp,
+        change: row.putOption.dayChange || 0,
+        pChange: row.putOption.dayChangePerc || 0,
+        openInterest: row.putOption.openInterest || 0,
+        changeinOpenInterest: (row.putOption.openInterest || 0) - (row.putOption.prevOpenInterest || 0),
+        totalTradedVolume: row.putOption.volume || 0,
+        impliedVolatility: null,
+        buyPrice1: 0,
+        sellPrice1: 0,
+        buyQuantity1: row.putOption.totalBuyQty || 0,
+        sellQuantity1: row.putOption.totalSellQty || 0
+      };
+    }
+    return result;
+  });
+
+  return {
+    source: 'Groww',
+    records: {
+      underlyingValue: 0,
+      expiryDates,
+      data
+    }
+  };
+}
+
 async function getNseTrackerData(symbol) {
   const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG.NIFTY;
-  const apiData = await fetchNseChain(symbol);
+  let apiData = await fetchNseChain(symbol);
+  let dataSource = 'NSE Direct';
+
+  if (!apiData.records?.data?.length || !apiData.records?.expiryDates?.length) {
+    apiData = await fetchGrowwChain(symbol);
+    dataSource = 'Groww';
+  }
+
   const spot = apiData.records?.underlyingValue || 0;
   const yahooSpot = await getSpotFromYahoo(symbol);
   const referencePrice = yahooSpot?.open || spot;
@@ -164,7 +248,7 @@ async function getNseTrackerData(symbol) {
     otmLevels: OTM_LEVELS,
     expiryDay: weekDays[config.expiryDay] || 'Thursday',
     expiries,
-    dataSource: 'NSE Direct'
+    dataSource
   };
 }
 
