@@ -107,6 +107,15 @@ async function getSpotFromYahoo(symbol) {
 
 async function fetchNseChain(symbol) {
   const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG.NIFTY;
+  try {
+    const { NseIndia } = require('stock-nse-india');
+    const nseIndia = new NseIndia();
+    const apiData = await nseIndia.getIndexOptionChain(config.nseSymbol);
+    if (apiData?.records?.data?.length) return apiData;
+  } catch {
+    // Fall through to direct NSE API.
+  }
+
   let cookies = '';
   try {
     const sessionRes = await axios.get('https://www.nseindia.com/option-chain', {
