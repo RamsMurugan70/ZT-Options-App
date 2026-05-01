@@ -7,6 +7,11 @@
   NODE_VERSION = "24"
 
 [[redirects]]
+  from = "/api/options/*"
+  to = "/.netlify/functions/options/:splat"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
