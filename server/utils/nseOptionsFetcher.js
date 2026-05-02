@@ -287,6 +287,10 @@ function getOtmStrike(strikes, referencePrice, percent, type) {
     return strikes[0];
 }
 
+function rowMatchesExpiry(row, expiry) {
+    return row.expiryDate === expiry || row.CE?.expiryDate === expiry || row.PE?.expiryDate === expiry;
+}
+
 async function getAnchorPrice(symbol) {
     const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG.NIFTY;
     const today = new Date().toISOString().split('T')[0];
@@ -347,6 +351,10 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
     const referencePrice = anchorPrice || spot;
 
     let targetExpiries = getTargetExpiries(raw.expiryDates, upperSymbol);
+    const aggregateRows = raw.intercepted.find(i => !i.expiry)?.data?.records?.data || [];
+    if (aggregateRows.length > 0) {
+        targetExpiries = targetExpiries.filter(expiry => aggregateRows.some(row => rowMatchesExpiry(row, expiry)));
+    }
     if (targetExpiries.length === 0 && raw.intercepted.length > 0) {
         const potentialExpiries = raw.intercepted.map(i => i.expiry).filter(e => e);
         targetExpiries = [...new Set(potentialExpiries)];
@@ -359,11 +367,7 @@ async function getOptionsTrackerData(symbol = 'NIFTY') {
         if (match && match.data && match.data.records) {
             if (!match.expiry) {
                 dataRows = match.data.records.data.filter(d => {
-                    if (d.expiryDate && d.expiryDate === expiry) return true;
-                    if (d.expiryDates && d.expiryDates === expiry) return true;
-                    if (d.CE && d.CE.expiryDate === expiry) return true;
-                    if (d.PE && d.PE.expiryDate === expiry) return true;
-                    return false;
+                    return rowMatchesExpiry(d, expiry);
                 });
             } else {
                 dataRows = match.data.records.data;

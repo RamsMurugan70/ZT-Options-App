@@ -90,6 +90,10 @@ function getOtmStrike(strikes, referencePrice, percent, type) {
   return strikes[0];
 }
 
+function rowMatchesExpiry(row, expiry) {
+  return row.expiryDate === expiry || row.CE?.expiryDate === expiry || row.PE?.expiryDate === expiry;
+}
+
 async function getSpotFromYahoo(symbol) {
   const yahooSymbol = symbol === 'SENSEX' ? '^BSESN' : SYMBOL_CONFIG[symbol]?.yahooSymbol;
   if (!yahooSymbol) return null;
@@ -225,17 +229,19 @@ async function getNseTrackerData(symbol) {
   const spot = apiData.records?.underlyingValue || 0;
   const yahooSpot = await getSpotFromYahoo(symbol);
   const referencePrice = yahooSpot?.open || spot;
-  const targetExpiries = (apiData.records?.expiryDates || []).slice(0, 2);
   const rows = apiData.records?.data || [];
+  const expiryDates = apiData.records?.expiryDates || [];
+  const targetExpiries = expiryDates.filter(expiry => rows.some(row => rowMatchesExpiry(row, expiry))).slice(0, 2);
 
   const expiries = targetExpiries.map(expiry => {
-    const dataRows = rows.filter(row => row.expiryDate === expiry || row.CE?.expiryDate === expiry || row.PE?.expiryDate === expiry);
-    const strikes = getAvailableStrikes(dataRows, row => row.strikePrice);
+    const dataRows = rows.filter(row => rowMatchesExpiry(row, expiry));
+    const getStrike = row => row.strikePrice || row.CE?.strikePrice || row.PE?.strikePrice;
+    const strikes = getAvailableStrikes(dataRows, getStrike);
     const options = OTM_LEVELS.map(level => {
       const ceStrike = getOtmStrike(strikes, referencePrice, level.percent, 'CE');
       const peStrike = getOtmStrike(strikes, referencePrice, level.percent, 'PE');
-      const ceRow = dataRows.find(row => row.strikePrice === ceStrike);
-      const peRow = dataRows.find(row => row.strikePrice === peStrike);
+      const ceRow = dataRows.find(row => getStrike(row) === ceStrike);
+      const peRow = dataRows.find(row => getStrike(row) === peStrike);
       return {
         ...level,
         ceStrike,

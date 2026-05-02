@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { RefreshCw, TrendingUp, TrendingDown, Activity, Clock, AlertTriangle, BarChart3, IndianRupee, ArrowUpDown, Plus, Trash2, X, CheckCircle2, Edit3, Copy } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertTriangle, BarChart3, IndianRupee, ArrowUpDown, Plus, Trash2, X, CheckCircle2, Edit3, Copy } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/options';
 
@@ -11,11 +11,6 @@ const OptionsTrackerPage = () => {
     const [lastFetch, setLastFetch] = useState(null);
     const [symbol, setSymbol] = useState('NIFTY');
     const [transactions, setTransactions] = useState([]);
-
-    // Algorithmic Trading State
-    const [algoData, setAlgoData] = useState(null);
-    const [algoLoading, setAlgoLoading] = useState(false);
-    const [algoError, setAlgoError] = useState(null);
 
     const fetchData = useCallback(async (refresh = false) => {
         setLoading(true);
@@ -47,19 +42,6 @@ const OptionsTrackerPage = () => {
         fetchData();
         fetchTransactions();
     }, [fetchData, fetchTransactions]);
-
-    const runAlgo = async () => {
-        setAlgoLoading(true);
-        setAlgoError(null);
-        try {
-            const res = await axios.get(`${API_URL}/algo/nifty?mode=live`);
-            setAlgoData(res.data);
-        } catch (err) {
-            setAlgoError(err.response?.data?.error || err.message || 'Failed to run algo');
-        } finally {
-            setAlgoLoading(false);
-        }
-    };
 
     const handleSymbolToggle = (newSymbol) => {
         if (newSymbol !== symbol) {
@@ -145,6 +127,10 @@ const OptionsTrackerPage = () => {
         const meta = getExpiryMetadata(expiry);
         const displaySymbol = getDisplaySymbol();
 
+        if (strike === undefined || strike === null || Number.isNaN(Number(strike))) {
+            return `${displaySymbol} ${optionType}`;
+        }
+
         if (!expDate) return `${displaySymbol} ${strike} ${optionType}`;
 
         const month = MONTH_LABELS[expDate.getMonth()];
@@ -163,7 +149,7 @@ const OptionsTrackerPage = () => {
         );
     };
 
-    const OptionCard = ({ contractName, optionData, type, expiry, bandLabel }) => {
+    const OptionCard = ({ contractName, optionData, type, expiry, bandLabel, strike }) => {
         const [showForm, setShowForm] = useState(false);
         const [editingId, setEditingId] = useState(null);
         const [form, setForm] = useState({ lots_sold: '', premium: '', margin: '', transaction_date: todayStr(), notes: '' });
@@ -184,7 +170,9 @@ const OptionsTrackerPage = () => {
                 <div className="bg-white rounded-xl border border-slate-200 p-6 opacity-50">
                     <h4 className="font-semibold text-slate-400">{displayTitle}</h4>
                     {bandLabel && <p className="text-xs font-semibold text-slate-400 mt-1">{bandLabel}</p>}
-                    <p className="text-sm text-slate-400 mt-2">No data available for this strike/expiry</p>
+                    <p className="text-sm text-slate-400 mt-2">
+                        {strike === undefined || strike === null ? 'Strike unavailable from live feed' : 'No data available for this strike/expiry'}
+                    </p>
                 </div>
             );
         }
@@ -460,16 +448,6 @@ const OptionsTrackerPage = () => {
                     </p>
                 </div>
 
-                {/* Algo Trigger Button */}
-                <button
-                    onClick={runAlgo}
-                    disabled={algoLoading}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium shadow-sm transition-colors border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 ${algoLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                    <Activity size={16} className={algoLoading ? 'animate-pulse' : ''} />
-                    {algoLoading ? 'Analyzing Markets...' : '9:30 AM Live Risk Score'}
-                </button>
-
                 <div className="flex items-center gap-3">
                     {/* Symbol Toggle */}
                     <div className="flex bg-slate-100 rounded-lg p-0.5">
@@ -519,32 +497,6 @@ const OptionsTrackerPage = () => {
                     <RefreshCw size={40} className="mx-auto text-brand-400 animate-spin mb-4" />
                     <p className="text-slate-500">Fetching live {symbol} data...</p>
                     <p className="text-slate-400 text-sm mt-1">This may take 10-15 seconds on first load</p>
-                </div>
-            )}
-
-            {/* Algo Results Display */}
-            {(algoData || algoError) && (
-                <div className={`mt-4 rounded-xl border p-5 ${algoError ? 'bg-rose-50 border-rose-200' : 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200'}`}>
-                    <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-bold text-lg flex items-center gap-2 text-blue-900">
-                            <BarChart3 className="text-blue-600" /> Live Risk Score Engine
-                        </h3>
-                        <button onClick={() => { setAlgoData(null); setAlgoError(null); }} className="text-blue-400 hover:text-blue-600">
-                            <X size={20} />
-                        </button>
-                    </div>
-                    {algoError ? (
-                        <div className="text-rose-600 flex items-start gap-2 text-sm max-h-32 overflow-y-auto">
-                            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                            <pre className="whitespace-pre-wrap font-sans">{algoError}</pre>
-                        </div>
-                    ) : (
-                        <div className="bg-white rounded-lg p-4 border border-blue-100 shadow-sm mt-3">
-                            <div className="font-mono text-sm sm:text-base text-slate-800 break-words whitespace-pre-wrap border-l-4 border-blue-500 pl-3 py-1">
-                                {algoData?.result || JSON.stringify(algoData, null, 2)}
-                            </div>
-                        </div>
-                    )}
                 </div>
             )}
 
@@ -611,6 +563,7 @@ const OptionsTrackerPage = () => {
                                                     type="CE"
                                                     expiry={exp.expiry}
                                                     bandLabel={level.label}
+                                                    strike={level.ceStrike}
                                                 />
                                                 <OptionCard
                                                     contractName={getBrokerOptionName(exp.expiry, level.peStrike, 'PE')}
@@ -618,6 +571,7 @@ const OptionsTrackerPage = () => {
                                                     type="PE"
                                                     expiry={exp.expiry}
                                                     bandLabel={level.label}
+                                                    strike={level.peStrike}
                                                 />
                                             </div>
                                         </div>
