@@ -8,11 +8,16 @@ const NSE_HEADERS = {
   Origin: 'https://www.nseindia.com'
 };
 
+const BSE_HEADERS = {
+  'User-Agent': NSE_HEADERS['User-Agent'],
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Referer: 'https://www.bseindia.com/',
+  Origin: 'https://www.bseindia.com'
+};
+
 const SYMBOL_CONFIG = {
-  NIFTY: { expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY', growwSymbol: 'NIFTY' },
-  BANKNIFTY: { expiryDay: 3, label: 'BANKNIFTY', yahooSymbol: '^NSEBANK', nseSymbol: 'BANKNIFTY', growwSymbol: 'BANKNIFTY' },
-  FINNIFTY: { expiryDay: 2, label: 'FINNIFTY', yahooSymbol: 'NIFTY_FIN_SERVICE.NS', nseSymbol: 'FINNIFTY', growwSymbol: 'FINNIFTY' },
-  MIDCPNIFTY: { expiryDay: 1, label: 'MIDCAP NIFTY', yahooSymbol: '^NSEMDCP50', nseSymbol: 'MIDCPNIFTY', growwSymbol: 'MIDCPNIFTY' }
+  NIFTY: { expiryDay: 4, label: 'NIFTY 50', yahooSymbol: '^NSEI', nseSymbol: 'NIFTY', growwSymbol: 'NIFTY' }
 };
 
 const BSE_API_BASE = 'https://api.bseindia.com';
@@ -38,6 +43,16 @@ function json(statusCode, body) {
 function parseNumber(value) {
   if (value === null || value === undefined || value === '-' || value === '') return null;
   return Number(String(value).replace(/,/g, ''));
+}
+
+function parseBseExpiryDate(dateStr) {
+  if (!dateStr) return null;
+  const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  const parts = String(dateStr).trim().split(/\s+/);
+  if (parts.length !== 3 || months[parts[1]] === undefined) return null;
+  const date = new Date(Number(parts[2]), months[parts[1]], Number(parts[0]));
+  date.setHours(23, 59, 59, 999);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function extractNseOptionFields(optObj, strike) {
@@ -68,7 +83,7 @@ function extractBseOptionFields(row, strike, type) {
     oi: parseNumber(type === 'CE' ? row.C_Open_Interest : row.Open_Interest),
     oiChange: parseNumber(type === 'CE' ? row.C_Absolute_Change_OI : row.Absolute_Change_OI),
     volume: parseNumber(type === 'CE' ? row.C_Vol_Traded : row.Vol_Traded),
-    iv: null,
+    iv: parseNumber(type === 'CE' ? row.C_IV : row.IV),
     bid: parseNumber(type === 'CE' ? row.C_BidPrice : row.BidPrice),
     ask: parseNumber(type === 'CE' ? row.C_OfferPrice : row.OfferPrice),
     bidQty: parseNumber(type === 'CE' ? row.C_BIdQty : row.BIdQty),
@@ -90,8 +105,25 @@ function getOtmStrike(strikes, referencePrice, percent, type) {
   return strikes[0];
 }
 
+function normalizeExpiryKey(dateStr) {
+  if (!dateStr) return null;
+  const months = {
+    Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+    Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+  };
+  const parts = String(dateStr).trim().split(/[-\s]/);
+  if (parts.length !== 3) return String(dateStr).trim();
+
+  const day = parts[0].padStart(2, '0');
+  const month = months[parts[1]] || parts[1].padStart(2, '0');
+  const year = parts[2];
+  return `${year}-${month}-${day}`;
+}
+
 function rowMatchesExpiry(row, expiry) {
-  return row.expiryDate === expiry || row.CE?.expiryDate === expiry || row.PE?.expiryDate === expiry;
+  const expiryKey = normalizeExpiryKey(expiry);
+  return [row.expiryDate, row.CE?.expiryDate, row.PE?.expiryDate]
+    .some(rowExpiry => normalizeExpiryKey(rowExpiry) === expiryKey);
 }
 
 async function getSpotFromYahoo(symbol) {
@@ -218,12 +250,24 @@ async function fetchGrowwChain(symbol) {
 
 async function getNseTrackerData(symbol) {
   const config = SYMBOL_CONFIG[symbol] || SYMBOL_CONFIG.NIFTY;
-  let apiData = await fetchNseChain(symbol);
+  let apiData;
   let dataSource = 'NSE Direct';
+  const errors = [];
 
-  if (!apiData.records?.data?.length || !apiData.records?.expiryDates?.length) {
-    apiData = await fetchGrowwChain(symbol);
-    dataSource = 'Groww';
+  try {
+    apiData = await fetchNseChain(symbol);
+  } catch (err) {
+    errors.push(`NSE Direct: ${err.message}`);
+  }
+
+  if (!apiData?.records?.data?.length || !apiData?.records?.expiryDates?.length) {
+    try {
+      apiData = await fetchGrowwChain(symbol);
+      dataSource = 'Groww';
+    } catch (err) {
+      errors.push(`Groww: ${err.message}`);
+      throw new Error(`All option chain sources failed for ${symbol}. ${errors.join(' | ')}`);
+    }
   }
 
   const spot = apiData.records?.underlyingValue || 0;
@@ -270,24 +314,29 @@ async function getNseTrackerData(symbol) {
 async function getSensexTrackerData() {
   const spotRes = await axios.get(
     `${BSE_API_BASE}/BseIndiaAPI/api/getScripHeaderData/w?Debtflag=&scripcode=${SENSEX_SCRIP_CD}&seriesid=`,
-    { headers: NSE_HEADERS, timeout: 12000 }
+    { headers: BSE_HEADERS, timeout: 12000 }
   );
   const spot = parseNumber(spotRes.data?.CurrRate?.LTP) || 0;
 
   const expiryRes = await axios.get(
     `${BSE_API_BASE}/BseIndiaAPI/api/ddlExpiry_New/w?scrip_cd=${SENSEX_SCRIP_CD}`,
-    { headers: NSE_HEADERS, timeout: 12000 }
+    { headers: BSE_HEADERS, timeout: 12000 }
   );
   const activeExpiries = expiryRes.data?.Table1 ? expiryRes.data.Table1.map(row => row.ExpiryDate) : [];
+  const now = new Date();
+  const futureExpiries = activeExpiries.filter(expiry => {
+    const expiryDate = parseBseExpiryDate(expiry);
+    return expiryDate && expiryDate >= now;
+  });
   const yahooSpot = await getSpotFromYahoo('SENSEX');
   const referencePrice = yahooSpot?.open || spot;
   const allExpiries = [];
 
-  for (const expiry of activeExpiries.slice(0, 4)) {
+  for (const expiry of futureExpiries.slice(0, 4)) {
     if (allExpiries.length >= 2) break;
     const chainRes = await axios.get(
       `${BSE_API_BASE}/BseIndiaAPI/api/DerivOptionChain_IV/w?Expiry=${encodeURIComponent(expiry)}&scrip_cd=${SENSEX_SCRIP_CD}&strprice=0`,
-      { headers: NSE_HEADERS, timeout: 12000 }
+      { headers: BSE_HEADERS, timeout: 12000 }
     );
     if (chainRes.data?.Table?.length) allExpiries.push({ expiry, data: chainRes.data.Table });
   }

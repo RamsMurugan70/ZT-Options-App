@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertTriangle, BarChart3, IndianRupee, ArrowUpDown, Plus, Trash2, X, CheckCircle2, Edit3, Copy } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertTriangle, BarChart3, IndianRupee, ArrowUpDown, Activity, Plus, Trash2, X, CheckCircle2, Edit3, Copy } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/options';
 
@@ -76,7 +76,7 @@ const OptionsTrackerPage = () => {
         return Number.isNaN(expDate.getTime()) ? null : expDate;
     };
 
-    const getDisplaySymbol = (rawSymbol = symbol) => rawSymbol === 'MIDCPNIFTY' ? 'MIDCAPNIFTY' : rawSymbol;
+    const getDisplaySymbol = (rawSymbol = symbol) => rawSymbol;
 
     const getExpiryMetadata = (dateStr) => {
         const expDate = parseExpiryDate(dateStr);
@@ -451,7 +451,7 @@ const OptionsTrackerPage = () => {
                 <div className="flex items-center gap-3">
                     {/* Symbol Toggle */}
                     <div className="flex bg-slate-100 rounded-lg p-0.5">
-                        {['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'].map((s) => (
+                        {['NIFTY', 'SENSEX'].map((s) => (
                             <button
                                 key={s}
                                 onClick={() => handleSymbolToggle(s)}
@@ -460,7 +460,7 @@ const OptionsTrackerPage = () => {
                                     : 'text-slate-500 hover:text-slate-700'
                                     }`}
                             >
-                                {s === 'FINNIFTY' ? 'FINNIFTY' : s}
+                                {s}
                             </button>
                         ))}
                     </div>
@@ -530,7 +530,7 @@ const OptionsTrackerPage = () => {
                     </div>
 
                     {/* Expiry Sections */}
-                    {data.expiries?.map((exp, idx) => {
+                    {data.expiries?.map((exp) => {
                         const meta = getExpiryMetadata(exp.expiry);
                         return (
                             <div key={exp.expiry} className="space-y-4">

@@ -34,6 +34,16 @@ function formatBSEDate(date) {
     return `${dd} ${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
+function parseBseExpiryDate(dateStr) {
+    if (!dateStr) return null;
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const parts = String(dateStr).trim().split(/\s+/);
+    if (parts.length !== 3 || months[parts[1]] === undefined) return null;
+    const date = new Date(Number(parts[2]), months[parts[1]], Number(parts[0]));
+    date.setHours(23, 59, 59, 999);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function parseBseNumber(str) {
     if (!str || str === '-' || str === '') return null;
     return parseFloat(String(str).replace(/,/g, ''));
@@ -100,8 +110,14 @@ async function fetchSensexOptionChain() {
         ? expiryRes.data.Table1.map(t => t.ExpiryDate)
         : [];
 
-    const candidateDates = activeExpiries.length > 0
-        ? activeExpiries.slice(0, 4)
+    const now = new Date();
+    const futureExpiries = activeExpiries.filter(expiry => {
+        const expiryDate = parseBseExpiryDate(expiry);
+        return expiryDate && expiryDate >= now;
+    });
+
+    const candidateDates = futureExpiries.length > 0
+        ? futureExpiries.slice(0, 4)
         : getUpcomingFridays(4).map(formatBSEDate);
 
     // 3. Fetch option chain for each expiry

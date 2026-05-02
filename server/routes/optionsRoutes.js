@@ -30,7 +30,7 @@ function saveCacheMap(cm) {
 // Per-symbol cache to avoid hammering exchanges on every request
 let cacheMap = loadCacheMap();  // { NIFTY: { data, timestamp }, SENSEX: { data, timestamp } }
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minute cache
-const VALID_SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
+const VALID_SYMBOLS = ['NIFTY', 'SENSEX'];
 let prefetchRunning = false;
 
 // On boot, discard any cache entries older than 12 hours (stale from previous day)
@@ -125,7 +125,7 @@ router.get('/chain', async (req, res) => {
         if (symbol === 'SENSEX') {
             data = await getSensexOptionsTrackerData();
         } else {
-            data = await getOptionsTrackerData(symbol);  // NIFTY or FINNIFTY
+            data = await getOptionsTrackerData(symbol);
         }
 
         cacheMap[symbol] = { data, timestamp: now };

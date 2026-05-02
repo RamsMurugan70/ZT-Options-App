@@ -287,8 +287,25 @@ function getOtmStrike(strikes, referencePrice, percent, type) {
     return strikes[0];
 }
 
+function normalizeExpiryKey(dateStr) {
+    if (!dateStr) return null;
+    const months = {
+        Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+        Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12'
+    };
+    const parts = String(dateStr).trim().split(/[-\s]/);
+    if (parts.length !== 3) return String(dateStr).trim();
+
+    const day = parts[0].padStart(2, '0');
+    const month = months[parts[1]] || parts[1].padStart(2, '0');
+    const year = parts[2];
+    return `${year}-${month}-${day}`;
+}
+
 function rowMatchesExpiry(row, expiry) {
-    return row.expiryDate === expiry || row.CE?.expiryDate === expiry || row.PE?.expiryDate === expiry;
+    const expiryKey = normalizeExpiryKey(expiry);
+    return [row.expiryDate, row.CE?.expiryDate, row.PE?.expiryDate]
+        .some(rowExpiry => normalizeExpiryKey(rowExpiry) === expiryKey);
 }
 
 async function getAnchorPrice(symbol) {
